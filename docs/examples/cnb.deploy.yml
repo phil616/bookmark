@@ -1,0 +1,146 @@
+# 可选部署模板：填入实际配置并核验后再替换根目录 .cnb.yml。
+# 后端：构建镜像后部署到 NodeID S2 主机
+# 前端：构建静态文件后交付到 EdgeOne Makers（CDN）
+#
+# 需替换：
+#   - 密钥仓库地址 <your-org>/<your-secret-repo>
+#   - VITE_API_BASE_URL（后端公开访问地址）
+#   - EdgeOne 项目名 online-bookmarks
+#   - AppID / 容器名 / 数据卷名
+# 前置：
+#   - S2 已安装 baoctl 并登记 AppID，部署用户可免密 sudo
+#   - S2 已用独立拉取凭据登录 CNB 制品仓库
+#   - baoctl AppID env 需含 INITIAL_ADMIN_KEY、COOKIE_SECURE=true、
+#     ALLOWED_ORIGINS=<EdgeOne 精确来源>
+#   - 前端与 API 需同站（同一可注册域），否则 SameSite=Lax 的会话 Cookie
+#     不会随跨站请求发送
+#   - 密钥仓库 deploy.yml 提供 DEPLOY_HOST/PORT/USER/SSH_KEY
+#     并声明 allow_images: [cnbcool/ssh] 与 allow_slugs: [<org>/<repo>]
+#   - 密钥仓库 pages.yml 提供 EDGEONE_API_TOKEN
+# 注意：cnbcool/ssh 插件未提供 known_hosts 参数，不进行主机指纹校验
+
+main:
+  push:
+    - name: 后端构建与 S2 部署
+      services:
+        - docker
+      ifModify:
+        - "cmd/**"
+        - "internal/**"
+        - "go.mod"
+        - "go.sum"
+        - "Dockerfile"
+        - ".dockerignore"
+        - ".cnb.yml"
+      lock:
+        key: online-bookmarks-api-production
+        wait: true
+        expires: 3600
+        timeout: 3600
+      stages:
+        - name: 登录制品仓库
+          timeout: 10m
+          script: |
+            set -eu
+            printf '%s' "${CNB_TOKEN}" | docker login \
+              -u "${CNB_TOKEN_USER_NAME}" \
+              --password-stdin "${CNB_DOCKER_REGISTRY}"
+
+        - name: 构建与推送镜像
+          timeout: 30m
+          script: |
+            set -eu
+            image="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${CNB_COMMIT}"
+            docker build -t "${image}" .
+            docker push "${image}"
+
+        - name: 部署到 S2
+          timeout: 15m
+          image: cnbcool/ssh
+          imports:
+            - https://cnb.cool/<your-org>/<your-secret-repo>/-/blob/main/deploy.yml
+          env:
+            APP_ID: online-bookmarks
+            IMAGE: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${CNB_COMMIT}
+          settings:
+            host: ${DEPLOY_HOST}
+            port: ${DEPLOY_PORT}
+            username: ${DEPLOY_USER}
+            key: ${DEPLOY_SSH_KEY}
+            command_timeout: 15m
+            script_stop: true
+            script: |
+              set -eu
+              sudo -n baoctl sync "${APP_ID}"
+              sudo -n test -s "/run/baoctl/${APP_ID}.env"
+              sudo -n docker pull "${IMAGE}"
+
+              sudo -n docker rm -f online-bookmarks-prev >/dev/null 2>&1 || true
+              if sudo -n docker inspect online-bookmarks >/dev/null 2>&1; then
+                sudo -n docker stop online-bookmarks >/dev/null
+                sudo -n docker rename online-bookmarks online-bookmarks-prev
+              fi
+
+              if ! sudo -n docker run -d \
+                --name online-bookmarks \
+                --restart unless-stopped \
+                --env-file "/run/baoctl/${APP_ID}.env" \
+                -p "127.0.0.1:8080:8080" \
+                -v "online-bookmarks-data:/data" \
+                "${IMAGE}" >/dev/null; then
+                sudo -n docker rm -f online-bookmarks >/dev/null 2>&1 || true
+                if sudo -n docker inspect online-bookmarks-prev >/dev/null 2>&1; then
+                  sudo -n docker rename online-bookmarks-prev online-bookmarks
+                  sudo -n docker start online-bookmarks >/dev/null
+                fi
+                exit 1
+              fi
+
+              if ! sudo -n timeout 60 sh -c 'until docker exec online-bookmarks wget -q -O /dev/null http://127.0.0.1:8080/healthz; do sleep 2; done'; then
+                sudo -n docker rm -f online-bookmarks >/dev/null 2>&1 || true
+                if sudo -n docker inspect online-bookmarks-prev >/dev/null 2>&1; then
+                  sudo -n docker rename online-bookmarks-prev online-bookmarks
+                  sudo -n docker start online-bookmarks >/dev/null
+                fi
+                exit 1
+              fi
+
+              sudo -n docker rm -f online-bookmarks-prev >/dev/null 2>&1 || true
+
+    - name: 前端构建与 EdgeOne 交付
+      ifModify:
+        - "web/**"
+        - ".cnb.yml"
+      lock:
+        key: online-bookmarks-web-production
+        wait: true
+        expires: 3600
+        timeout: 3600
+      docker:
+        image: node:24
+        volumes:
+          - /root/.npm:copy-on-write
+      stages:
+        - name: 安装依赖
+          timeout: 15m
+          script: |
+            set -eu
+            npm --prefix web ci
+
+        - name: 构建静态文件
+          timeout: 20m
+          env:
+            VITE_API_BASE_URL: https://api.example.com
+          script: |
+            set -eu
+            npm --prefix web run build
+
+        - name: 交付到 EdgeOne
+          timeout: 15m
+          imports:
+            - https://cnb.cool/<your-org>/<your-secret-repo>/-/blob/main/pages.yml
+          script: |
+            set -eu
+            npx --yes edgeone@1.6.47 makers deploy ./web/dist \
+              -n online-bookmarks \
+              -t "${EDGEONE_API_TOKEN}"

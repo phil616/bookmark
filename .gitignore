@@ -1,0 +1,27 @@
+# Local configuration and persistent data
+.env
+.env.*
+!.env.example
+config.json
+data/
+*.db
+*.db-shm
+*.db-wal
+master.key
+
+# Dependencies, build output and reports
+bin/
+dist/
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+web/test-results/
+web/playwright-report/
+__pycache__/
+*.pyc
+*.log
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store

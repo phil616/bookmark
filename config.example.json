@@ -1,0 +1,10 @@
+{
+  "data_dir": "data",
+  "listen_addr": ":8080",
+  "web_dir": "web/dist",
+  "database_url": "",
+  "allowed_origins": "",
+  "cookie_secure": false,
+  "initial_admin_username": "admin",
+  "initial_admin_key": "replace-with-long-random-admin-key"
+}

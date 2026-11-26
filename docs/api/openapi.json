@@ -1,0 +1,1952 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "online-bookmarks",
+    "version": "1.0.0",
+    "description": "Multi-user bookmarks. Ordinary users are isolated by account. Superadmins can only manage ordinary users and sessions.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "contact": {
+      "name": "phil616"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    },
+    {
+      "cookie": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "cookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session"
+      }
+    },
+    "schemas": {
+      "BookmarkInput": {
+        "type": "object",
+        "required": [
+          "raw"
+        ],
+        "properties": {
+          "raw": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.5
+          },
+          "version": {
+            "type": "integer",
+            "description": "Required for updates, from previous GET"
+          },
+          "create_tags": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "Bookmark": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BookmarkInput"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
+      },
+      "Bundle": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "bookmarks"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bookmarks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "raw_base64"
+              ],
+              "properties": {
+                "raw_base64": {
+                  "type": "string",
+                  "contentEncoding": "base64"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "description": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.5
+                }
+              }
+            }
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "superadmin",
+              "user"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UserInput": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "api_key": {
+            "type": "string",
+            "description": "At least 16 characters when creating or resetting; empty keeps existing key on PUT"
+          },
+          "disabled": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "Share": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "bookmark",
+              "tag"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "bookmark_count": {
+            "type": "integer"
+          },
+          "tag_count": {
+            "type": "integer"
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ShareInput": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "enum": [
+              "bookmark",
+              "tag"
+            ]
+          },
+          "bookmark_id": {
+            "type": "string",
+            "description": "Required only for kind=bookmark"
+          },
+          "tag_id": {
+            "type": "string",
+            "description": "Required only for kind=tag"
+          },
+          "expires_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "default": 7
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "ShareImport": {
+        "type": "object",
+        "properties": {
+          "target_path": {
+            "type": "string",
+            "description": "Existing destination tag path, or empty for root"
+          },
+          "revision": {
+            "type": "string",
+            "description": "Required for commit; returned by preview"
+          }
+        }
+      },
+      "MergeResult": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "string"
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "created": {
+                "type": "integer"
+              },
+              "merged": {
+                "type": "integer"
+              },
+              "unchanged": {
+                "type": "integer"
+              },
+              "tags_created": {
+                "type": "integer"
+              },
+              "tags_reused": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "Login",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "api_key": {
+                    "type": "string"
+                  },
+                  "username": {
+                    "type": "string",
+                    "description": "Optional username; API key uniquely identifies account"
+                  }
+                },
+                "required": [
+                  "api_key"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "security": []
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Logout",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ]
+      }
+    },
+    "/auth/session": {
+      "get": {
+        "summary": "Read session",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        }
+      }
+    },
+    "/auth/key": {
+      "put": {
+        "summary": "Rotate key and revoke all sessions",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "current": {
+                    "type": "string"
+                  },
+                  "next": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "current",
+                  "next"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/bookmarks": {
+      "get": {
+        "summary": "List bookmarks, score descending",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "unclassified",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      },
+      "post": {
+        "summary": "Create bookmark",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bookmark"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookmarkInput"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/bookmarks/{id}": {
+      "get": {
+        "summary": "Get bookmark",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bookmark"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      },
+      "put": {
+        "summary": "Replace bookmark with version check",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookmarkInput"
+              }
+            }
+          }
+        },
+        "description": "Ordinary users only; all data is scoped to the current account."
+      },
+      "delete": {
+        "summary": "Permanently delete bookmark",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/bookmarks/batch": {
+      "post": {
+        "summary": "Transactional batch operation",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "action": {
+                    "enum": [
+                      "archive",
+                      "restore",
+                      "delete"
+                    ]
+                  }
+                },
+                "required": [
+                  "ids",
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/tags": {
+      "get": {
+        "summary": "List classification nodes with id, path, name and parent_id",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "description": "Ordinary users only; all data is scoped to the current account."
+      },
+      "post": {
+        "summary": "Create full path and parents",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/tags/{id}": {
+      "put": {
+        "summary": "Rename or move subtree, preserving IDs",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "description": "Ordinary users only; all data is scoped to the current account."
+      },
+      "delete": {
+        "summary": "Delete subtree and remove related labels",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/analysis": {
+      "post": {
+        "summary": "Analyze, no persistence",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "raw": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "enum": [
+                      "description",
+                      "tags",
+                      "both"
+                    ]
+                  }
+                },
+                "required": [
+                  "raw",
+                  "mode"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/settings/llm": {
+      "get": {
+        "summary": "Read settings with has_api_key; never returns secret",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "description": "Ordinary users only; all data is scoped to the current account."
+      },
+      "put": {
+        "summary": "Save settings, blank key preserves old value",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base_url": {
+                    "type": "string"
+                  },
+                  "model_id": {
+                    "type": "string"
+                  },
+                  "api_key": {
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "base_url",
+                  "model_id"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      },
+      "delete": {
+        "summary": "Clear settings",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/settings/llm/test": {
+      "post": {
+        "summary": "Test saved model configuration",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/exports": {
+      "get": {
+        "summary": "Export all data",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bundle"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/imports/preview": {
+      "post": {
+        "summary": "Validate import without persistence",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/Bundle"
+                  },
+                  "revision": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "data"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/imports/commit": {
+      "post": {
+        "summary": "Commit with database revision check",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "409": {
+            "description": "Duplicate or stale version"
+          },
+          "403": {
+            "description": "Role forbidden or origin/CSRF rejected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/Bundle"
+                  },
+                  "revision": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "data",
+                  "revision"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "description": "Required for browser requests without Authorization",
+            "schema": {
+              "const": "online-bookmarks"
+            }
+          }
+        ],
+        "description": "Ordinary users only; all data is scoped to the current account."
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "summary": "Search ordinary users",
+        "description": "Superadmin only. Only role=user can be read or modified. Keys and sessions are never returned. Saving changes invalidates that user's sessions.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create ordinary user",
+        "description": "Superadmin only. Only role=user can be read or modified. Keys and sessions are never returned. Saving changes invalidates that user's sessions.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/users/{id}": {
+      "get": {
+        "summary": "Get ordinary user",
+        "description": "Superadmin only. Only role=user can be read or modified. Keys and sessions are never returned. Saving changes invalidates that user's sessions.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "summary": "Edit, disable or reset user key",
+        "description": "Superadmin only. Only role=user can be read or modified. Keys and sessions are never returned. Saving changes invalidates that user's sessions.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserInput"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete user and all owned data",
+        "description": "Superadmin only. Only role=user can be read or modified. Keys and sessions are never returned. Saving changes invalidates that user's sessions.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/shares": {
+      "get": {
+        "summary": "List own share metadata",
+        "description": "Regular users only.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Share"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create immutable share snapshot",
+        "description": "Regular users only.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "share": {
+                      "$ref": "#/components/schemas/Share"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/shares/{token}": {
+      "get": {
+        "summary": "Read shared snapshot",
+        "description": "Regular users with a valid unrevoked token. Includes only snapshot data; disabled or deleted owners invalidate links.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "share": {
+                      "$ref": "#/components/schemas/Share"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Bundle"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Revoke own share by ID",
+        "description": "For DELETE supply the share ID (not the link token). Only the owner may revoke.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/shares/{token}/preview": {
+      "post": {
+        "summary": "Preview hierarchy merge",
+        "description": "Regular recipient only. Same-owner imports rejected. Merge by full mapped path; preserve existing score and archive state. Preview rolls back; commit requires the matching revision. Repeated identical imports do not update unchanged bookmarks.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MergeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareImport"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/shares/{token}/commit": {
+      "post": {
+        "summary": "Commit hierarchy merge",
+        "description": "Regular recipient only. Same-owner imports rejected. Merge by full mapped path; preserve existing score and archive state. Preview rolls back; commit requires the matching revision. Repeated identical imports do not update unchanged bookmarks.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MergeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found or link unavailable"
+          },
+          "409": {
+            "description": "Duplicate or stale preview"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareImport"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

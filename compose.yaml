@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+      INITIAL_ADMIN_KEY: ${INITIAL_ADMIN_KEY:?Set INITIAL_ADMIN_KEY in .env}
+      DATABASE_URL: ${DATABASE_URL:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    volumes:
+      - bookmarks-data:/data
+    restart: unless-stopped
+  postgres:
+    image: postgres:17-alpine
+    profiles: [postgres]
+    environment:
+      POSTGRES_USER: bookmarks
+      POSTGRES_DB: bookmarks
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bookmarks-local-development}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U bookmarks"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  bookmarks-data:
+  postgres-data:
