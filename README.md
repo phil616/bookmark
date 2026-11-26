@@ -1,22 +1,22 @@
 # online-bookmarks
 
-多用户收藏管理应用。支持原文收藏、树形标签、链接分享、智能分析、JSON 导入导出及 MCP，提供桌面和移动端界面。
+多用户收藏管理应用。支持原文收藏、树形标签、链接分享、智能分析、JSON 导入导出及 MCP，提供桌面和移动端界面。前端（React + Vite）与后端（Go）分开构建、分开部署，只通过 `/api/v1` 和 `/mcp` 通信。
 
 当前版本：**v1.0.0**。许可证：[MIT](LICENSE)，Copyright © 2026 phil616。
 
 ## 快速启动
 
-需要 Docker 与 Docker Compose v2。
+需要 Docker 与 Docker Compose v2。Compose 会启动前端静态站点和 API 两个服务。
 
 ```bash
 cp .env.example .env
-# 修改 INITIAL_ADMIN_KEY，设置至少 16 字符的随机密钥
+# 修改 INITIAL_ADMIN_KEY（至少 16 字符），按需修改 API_PORT 与 VITE_API_BASE_URL
 docker compose up -d --build --wait
 ```
 
-打开 <http://localhost:8080>，使用 `admin` 和配置的密钥登录，在“用户管理”中创建普通账号。超级管理员只管理用户，普通账号使用收藏功能。初始化配置仅首次启动生效。
+前端在 <http://localhost:8080>，API 在 <http://localhost:8081>（健康检查 `/healthz`）。使用 `admin` 和配置的密钥登录，在“用户管理”中创建普通账号。超级管理员只管理用户，普通账号使用收藏功能。初始化配置仅首次启动生效。
 
-默认使用 SQLite，数据库及加密主密钥保存在 Docker 数据卷中。更新时保留数据卷；部署、备份与旧版迁移见[部署指南](docs/deployment.md)。
+`VITE_API_BASE_URL` 在构建时写入前端产物，改地址后要重新构建前端。默认使用 SQLite，数据库及加密主密钥保存在 Docker 数据卷中。更新时保留数据卷；部署、备份与旧版迁移见[部署指南](docs/deployment.md)。
 
 ## 功能
 
@@ -46,12 +46,13 @@ docker compose up -d --build --wait
 
 ```bash
 make build
-INITIAL_ADMIN_KEY=change-this-admin-key ./bin/online-bookmarks
+INITIAL_ADMIN_KEY=change-this-admin-key ALLOWED_ORIGINS=http://localhost:5173 ./bin/online-bookmarks
 # 另一个终端运行前端热更新：
+cp web/.env.example web/.env    # 确认 VITE_API_BASE_URL 指向 http://localhost:8080
 npm --prefix web run dev
 ```
 
-后端默认端口 `8080`，前端开发端口 `5173`。其他命令见 `make help`。
+后端默认端口 `8080`，前端开发端口 `5173`。不创建 `web/.env` 时，前端改用 Vite 的 `/api`、`/mcp` 代理指向 `8080`，属于同源开发，此时无需设置 `ALLOWED_ORIGINS`。其他命令见 `make help`。
 
 ## 许可
 

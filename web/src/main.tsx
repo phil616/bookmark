@@ -112,6 +112,8 @@ type Account = {
 type Category = { id: string; path: string; parent_id: string; name: string };
 type Draft = Partial<Bookmark> & { draftID?: string; create_tags?: boolean };
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+// API 与前端分离部署时，后端相关地址要跟着 VITE_API_BASE_URL 走。
+const API_ORIGIN = API_BASE || location.origin;
 let pendingRequests = new AbortController();
 function cancelPendingRequests() {
   pendingRequests.abort();
@@ -1932,7 +1934,7 @@ function Settings({
       <Card title="MCP 接入">
         <p>
           端点：
-          <Typography.Text copyable>{location.origin}/mcp</Typography.Text>
+          <Typography.Text copyable>{API_ORIGIN}/mcp</Typography.Text>
         </p>
         <p>请求头：Authorization: Bearer &lt;APIKey&gt;</p>
         <p>协议：Streamable HTTP。分析规范：bookmarks://analysis-spec/v1。</p>

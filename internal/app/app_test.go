@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -297,37 +296,54 @@ func TestHTMLTimeout(t *testing.T) {
 	}
 }
 
-func TestFrontendDeploymentCaching(t *testing.T) {
+func TestUnknownRoutesReturnJSON404(t *testing.T) {
 	a := testApp(t)
-	dir := t.TempDir()
-	t.Setenv("WEB_DIR", dir)
-	if e := os.Mkdir(filepath.Join(dir, "assets"), 0700); e != nil {
-		t.Fatal(e)
-	}
-	for name, body := range map[string]string{"index.html": `<html><script src="/assets/current-123.js"></script></html>`, "assets/current-123.js": `console.log("current")`} {
-		if e := os.WriteFile(filepath.Join(dir, name), []byte(body), 0600); e != nil {
-			t.Fatal(e)
-		}
-	}
 	h := a.Handler()
-	for _, tc := range []struct {
-		path, cache string
-		status      int
-	}{
-		{"/", "no-cache, max-age=0, must-revalidate", 200},
-		{"/bookmarks", "no-cache, max-age=0, must-revalidate", 200},
-		{"/share/token", "no-cache, max-age=0, must-revalidate", 200},
-		{"/assets/current-123.js", "public, max-age=31536000, immutable", 200},
-		{"/assets/old-456.js", "no-store", 404},
-		{"/api/v1/auth/session", "private, no-store", 401},
-	} {
+	for _, path := range []string{"/", "/bookmarks", "/share/token", "/assets/current-123.js"} {
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", tc.path, nil))
-		if w.Code != tc.status || w.Header().Get("Cache-Control") != tc.cache {
-			t.Fatalf("%s: %d %s", tc.path, w.Code, w.Header().Get("Cache-Control"))
+		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 404 || w.Header().Get("Cache-Control") != "no-store" || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
+			t.Fatalf("%s: %d %s %s", path, w.Code, w.Header().Get("Cache-Control"), w.Header().Get("Content-Type"))
 		}
-		if tc.status == 404 && strings.Contains(w.Body.String(), "<html>") {
-			t.Fatal("missing bundle returned SPA HTML")
+		var body struct {
+			Code string `json:"code"`
 		}
+		if e := json.Unmarshal(w.Body.Bytes(), &body); e != nil || body.Code != "not_found" {
+			t.Fatalf("%s: %s %v", path, w.Body.String(), e)
+		}
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil))
+	if w.Code != 200 {
+		t.Fatalf("healthz: %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/auth/session", nil))
+	if w.Code != 401 || w.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("api: %d %s", w.Code, w.Header().Get("Cache-Control"))
+	}
+}
+
+func TestCORSForSeparateFrontend(t *testing.T) {
+	t.Setenv("ALLOWED_ORIGINS", "https://app.example.com")
+	a := testApp(t)
+	h := a.Handler()
+	preflight := httptest.NewRequest("OPTIONS", "/api/v1/bookmarks", nil)
+	preflight.Header.Set("Origin", "https://app.example.com")
+	preflight.Header.Set("Access-Control-Request-Method", "POST")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, preflight)
+	if w.Code != 204 || w.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" || w.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatalf("preflight: %d %v", w.Code, w.Header())
+	}
+	if !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "X-Requested-With") {
+		t.Fatalf("preflight headers: %v", w.Header())
+	}
+	denied := httptest.NewRequest("GET", "/api/v1/auth/session", nil)
+	denied.Header.Set("Origin", "https://evil.example")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, denied)
+	if w.Code != 403 {
+		t.Fatalf("denied origin: %d", w.Code)
 	}
 }

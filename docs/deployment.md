@@ -2,18 +2,20 @@
 
 ## Docker 与 SQLite
 
-在项目根目录执行：
+前端是静态站点，后端只提供 API，`docker compose` 会构建并启动两个服务。在项目根目录执行：
 
 ```bash
 cp .env.example .env
-# 设置 INITIAL_ADMIN_KEY，至少 16 字符
+# 设置 INITIAL_ADMIN_KEY（至少 16 字符），按需修改 API_PORT 与 VITE_API_BASE_URL
 docker compose up -d --build --wait
-curl --fail http://localhost:8080/healthz
+curl --fail http://localhost:8081/healthz
 ```
 
-默认端口 `8080`，管理员名 `admin`。管理员只负责创建和管理普通用户。初始化用户名与密钥仅首次建库生效，修改配置不会重置数据库中的现有密钥。
+前端默认 `8080`，API 默认 `8081`，分别由 `.env` 的 `PORT` 和 `API_PORT` 控制。`VITE_API_BASE_URL` 是**构建时**写入前端产物的 API 地址，必须与浏览器实际访问 API 的地址一致；改端口或域名后要重新构建前端（`docker compose up -d --build web`）。
 
-应用以容器内 UID `10001` 运行。SQLite 数据库和加密主密钥保存在 `bookmarks-data` 数据卷；使用绑定目录时需允许该 UID 读写。
+管理员名 `admin`。管理员只负责创建和管理普通用户。初始化用户名与密钥仅首次建库生效，修改配置不会重置数据库中的现有密钥。
+
+API 容器以 UID `10001` 运行。SQLite 数据库和加密主密钥保存在 `bookmarks-data` 数据卷；使用绑定目录时需允许该 UID 读写。
 
 ## 配置
 
@@ -26,12 +28,15 @@ curl --fail http://localhost:8080/healthz
 | `DATABASE_URL` | 为空时使用 SQLite；非空时使用 PostgreSQL |
 | `DATA_DIR` | 原生运行默认 `data`，Docker 为 `/data`；保存 SQLite 与 `master.key` |
 | `LISTEN_ADDR` | 默认 `:8080`，容器内端口 |
-| `WEB_DIR` | 原生运行默认 `web/dist`，Docker 为 `/app/web` |
-| `ALLOWED_ORIGINS` | 独立前端的精确来源，逗号分隔；同源部署留空 |
+| `ALLOWED_ORIGINS` | 前端来源白名单，前后端分离部署必填，逗号分隔 |
 | `COOKIE_SECURE` | 默认 `false`，HTTPS 部署设为 `true` |
 | `CONFIG_FILE` | 可选的 JSON 配置文件路径 |
-| `PORT` | 仅用于 Compose 的宿主机端口，默认 `8080` |
+| `PORT` | 仅用于 Compose 的前端端口，默认 `8080` |
+| `API_PORT` | 仅用于 Compose 的 API 端口，默认 `8081` |
+| `VITE_API_BASE_URL` | 仅用于 Compose 构建前端，写入产物的 API 地址 |
 | `POSTGRES_PASSWORD` | 仅用于 Compose 的 PostgreSQL 容器密码 |
+
+后端只提供 `/api/v1`、`/mcp` 和 `/healthz`；页面与静态资源由前端站点负责，其他路径返回 JSON 404。
 
 模型参数由各普通用户在网页设置中维护，加密存入数据库。APIKey 使用 Argon2id 哈希，会话仅存令牌摘要。
 
@@ -46,38 +51,44 @@ DATABASE_URL=postgres://bookmarks:replace-with-a-database-password@postgres:5432
 
 ```bash
 docker compose --profile postgres up -d --wait postgres
-docker compose up -d --build --wait app
+docker compose up -d --build --wait api web
 ```
 
 远程数据库应按其配置启用 TLS。配置 PostgreSQL 后连接失败会退出，不会退回 SQLite。首次初始化前选定数据库；改变连接串不会自动搬迁现有数据。
 
-## HTTPS 与独立前端
+## 构建与托管前端
 
-推荐反向代理到应用，由同一个来源提供网页和 API，并设置 `COOKIE_SECURE=true`。
-
-如需独立部署前端，在构建时设置公开 API 地址：
+前端是独立的静态站点，API 地址在构建时从 `web/.env` 读取：
 
 ```bash
+cp web/.env.example web/.env
+# 编辑 VITE_API_BASE_URL，指向后端的公开地址，不要带 /api/v1 后缀
 npm --prefix web ci
-VITE_API_BASE_URL=https://api.example.com npm --prefix web run build
+npm --prefix web run build    # 产物在 web/dist
 ```
 
-将 `web/dist` 上传至静态托管服务，并配置 SPA 路由回退。在后端设置 `ALLOWED_ORIGINS=https://bookmarks.example.com`，浏览器发送带凭据请求。
+也可以用环境变量覆盖，适合 CI：`VITE_API_BASE_URL=https://api.example.com npm --prefix web run build`。
 
-前端和 API 应位于同站的 HTTPS 域名，例如上述两个子域。会话 Cookie 使用 `SameSite=Lax`，任意跨站前端不能依靠 CORS 获得 Cookie 会话。不要将服务端或模型密钥放入任何 `VITE_*` 变量。
+把 `web/dist` 上传到任意静态托管或对象存储，并配置 SPA 路由回退（未知路径返回 `index.html`）。缓存策略应为入口 `index.html` 每次重新校验、`/assets/` 下的哈希文件长期缓存；[web/nginx.conf](../web/nginx.conf) 是可用的参考配置，[web/Dockerfile](../web/Dockerfile) 可直接构建 nginx 镜像。反向代理或 CDN 不应覆盖入口的更新策略。
 
-应用已为 HTML 入口设置重新校验，为哈希静态资源设置长期缓存。反向代理或 CDN 不应覆盖入口的更新策略。端口可访问不等于部署正常，应检查 `/healthz` 和实际登录。
+后端设置 `ALLOWED_ORIGINS` 为前端的精确来源（协议、主机、端口都要一致，逗号分隔多个），HTTPS 部署同时设置 `COOKIE_SECURE=true`。端口可访问不等于部署正常，应检查 `/healthz` 和实际登录。
+
+## 同站要求
+
+会话 Cookie 使用 `SameSite=Lax`，所以前端与 API 必须同站（同一可注册域），例如 `bookmarks.example.com` 调用 `api.example.com`。前端和 API 处于不同站点时，浏览器不会随跨源请求发送会话 Cookie，表现为登录后仍是未登录状态。真跨站需要改成 `SameSite=None; Secure` 并重新评估 CSRF 风险，当前版本不支持。
+
+不要将服务端或模型密钥放入任何 `VITE_*` 变量：它们会被打包进公开的前端产物。
 
 ## 更新与备份
 
 更新前备份数据库及 `master.key`，然后在新源码目录执行：
 
 ```bash
-docker compose up -d --build --wait app
-docker compose logs --tail 50 app
+docker compose up -d --build --wait api web
+docker compose logs --tail 50 api
 ```
 
-保留原数据卷，不使用 `down -v`。当前支持单个应用实例，数据库迁移按版本在启动时执行。
+前端产物里写死了构建时的 API 地址，修改域名后必须重新构建 `web` 服务。保留原数据卷，不使用 `down -v`。当前支持单个应用实例，数据库迁移按版本在启动时执行。
 
 完整备份应停止应用后备份整个数据目录；SQLite 数据库和 WAL 必须配套保存。PostgreSQL 可使用数据库备份工具，但仍需单独备份 `DATA_DIR/master.key`。恢复时匹配原主密钥，否则原模型密钥无法解密，可清除模型配置后重填。登录密钥为不可逆哈希，不能从备份恢复明文。
 

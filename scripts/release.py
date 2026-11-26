@@ -18,8 +18,10 @@ ROOT_FILES = (
     '.cnb.yml', '.dockerignore', '.editorconfig', '.env.example', '.gitignore',
     'CHANGELOG.md', 'LICENSE', 'Makefile', 'README.md', 'THIRD_PARTY_NOTICES.md',
     'Dockerfile', 'compose.yaml', 'config.example.json', 'go.mod', 'go.sum',
-    'web/package.json', 'web/package-lock.json', 'web/tsconfig.json',
-    'web/vite.config.ts', 'web/playwright.config.ts', 'web/index.html',
+    'web/.dockerignore', 'web/.env.example', 'web/.env.e2e', 'web/Dockerfile',
+    'web/nginx.conf', 'web/package.json', 'web/package-lock.json',
+    'web/tsconfig.json', 'web/vite.config.ts', 'web/playwright.config.ts',
+    'web/index.html',
 )
 SOURCE_DIRS = ('cmd', 'internal', 'docs', 'scripts', 'web/src', 'web/public', 'web/tests')
 SKIP_PARTS = {'__pycache__', 'node_modules', 'test-results', 'playwright-report', '.git'}
@@ -51,6 +53,9 @@ def check():
     docker_version = re.search(r'org.opencontainers.image.version="([^"]+)"', (ROOT / 'Dockerfile').read_text())
     if not docker_version or docker_version.group(1) != version:
         raise ValueError('Docker image version does not match the application')
+    web_docker_version = re.search(r'org.opencontainers.image.version="([^"]+)"', (ROOT / 'web/Dockerfile').read_text())
+    if not web_docker_version or web_docker_version.group(1) != version:
+        raise ValueError('frontend image version does not match the application')
     if package.get('license') != 'MIT' or 'Copyright (c) 2026 phil616' not in (ROOT / 'LICENSE').read_text():
         raise ValueError('project MIT license metadata is missing')
     if f'## v{version} ' not in (ROOT / 'CHANGELOG.md').read_text():
@@ -150,8 +155,8 @@ def build(version, force):
         if (dist / name).exists() and not force:
             raise ValueError(f'dist/{name} already exists; use --force only to replace local unpublished packages')
     env = dict(os.environ, CGO_ENABLED='1', GOOS=target_os, GOARCH=target_arch)
+    # Runtime dependency licenses are collected from the installed npm tree.
     run(['npm', '--prefix', 'web', 'ci'])
-    run(['npm', '--prefix', 'web', 'run', 'build'], env=dict(os.environ, VITE_API_BASE_URL=''))
     collect_licenses()
     check()
     dist.mkdir(exist_ok=True)
@@ -166,20 +171,26 @@ def build(version, force):
         for name in ('LICENSE', 'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md', '.env.example', 'config.example.json'):
             shutil.copy2(ROOT / name, native / name)
         shutil.copytree(ROOT / 'docs', native / 'docs')
-        shutil.copytree(ROOT / 'web/dist', native / 'web/dist')
         (native / 'README.md').write_text(f'''# online-bookmarks v{version}
 
-Native {target_os}/{target_arch} release with bundled frontend.
+Native {target_os}/{target_arch} build of the API server. The web frontend is
+built and deployed separately.
 
 ```sh
 ./online-bookmarks --version
 INITIAL_ADMIN_KEY=replace-with-at-least-16-characters ./online-bookmarks
 ```
 
-Open http://localhost:8080, sign in as admin and create regular users.
-Run from this directory so web/dist resolves correctly. The binary uses CGO
-and dynamically links the build system's C library; see BUILD_INFO.json.
-For portable deployment use the Docker instructions in the source release.
+The API listens on :8080 and reports readiness on /healthz; /api/v1, /mcp and
+/healthz are the only routes it serves. Build the frontend from the source
+release with `VITE_API_BASE_URL` set to this API's public origin, upload
+`web/dist` to a static host, and set `ALLOWED_ORIGINS` to the frontend origin.
+Frontend and API must share a site (same registrable domain) so the SameSite=Lax
+session cookie is sent.
+
+The binary uses CGO and dynamically links the build system's C library; see
+BUILD_INFO.json. For portable deployment use the Docker instructions in the
+source release.
 
 Configuration, backup and migration: docs/deployment.md
 Usage: docs/usage.md

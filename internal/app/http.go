@@ -239,32 +239,14 @@ func (a *App) Handler() http.Handler {
 	a.userRoutes(mux)
 	a.shareRoutes(mux)
 	mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.forRequest(r).MCP().ServeHTTP(w, r) }))
-	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			http.NotFound(w, r)
-			return
-		}
-		dir := os.Getenv("WEB_DIR")
-		if dir == "" {
-			dir = "web/dist"
-		}
-		// Revalidate every SPA entry so deployments pick up the new asset hash.
-		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
-		p := dir + r.URL.Path
-		if st, e := os.Stat(p); e == nil && !st.IsDir() {
-			if strings.HasPrefix(r.URL.Path, "/assets/") {
-				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			}
-			http.FileServer(http.Dir(dir)).ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/assets/") {
-			w.Header().Set("Cache-Control", "no-store")
-			http.NotFound(w, r)
-			return
-		}
-		http.ServeFile(w, r, dir+"/index.html")
-	}))
+	// API-only process: the web frontend is built and deployed separately and
+	// calls /api/v1 (and /mcp) on this origin. Anything else is a client error.
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"code": "not_found", "message": "not found"})
+	})
 	authLimit := rate.NewLimiter(10, 20)
 	var gate sync.Mutex // Serialize mutations with import revision checks, across REST and MCP.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

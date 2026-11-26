@@ -17,6 +17,7 @@ web/dist/
 web/*.tsbuildinfo
 web/test-results/
 web/playwright-report/
+!web/.env.e2e
 __pycache__/
 *.pyc
 *.log

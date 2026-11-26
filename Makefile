@@ -1,7 +1,7 @@
 .PHONY: help build frontend backend test check web-test release clean
 
 help:
-	@printf '%s\n' 'make build     Build web/dist and bin/online-bookmarks' 'make test      Run Go tests' 'make check     Check versions, docs, Go tests/race/vet and frontend' 'make web-test  Install Chromium and run browser tests' 'make release   Build native/source archives and SHA256SUMS in dist/' 'make clean     Remove generated build and test output'
+	@printf '%s\n' 'make build     Build web/dist and bin/online-bookmarks (deploy separately)' 'make test      Run Go tests' 'make check     Check versions, docs, Go tests/race/vet and frontend' 'make web-test  Install Chromium and run browser tests' 'make release   Build native/source archives and SHA256SUMS in dist/' 'make clean     Remove generated build and test output'
 
 build: frontend backend
 
@@ -24,7 +24,6 @@ check:
 
 web-test:
 	npm --prefix web ci
-	npm --prefix web run build
 	cd web && npx playwright install chromium && npx playwright test
 
 release:

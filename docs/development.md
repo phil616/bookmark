@@ -15,7 +15,7 @@ make build
 INITIAL_ADMIN_KEY=change-this-admin-key ./bin/online-bookmarks
 ```
 
-程序默认从当前工作目录读取 `web/dist`，数据写入 `data`。不会自动读取 `.env`。JSON 配置使用 `CONFIG_FILE` 指定。
+`make build` 生成 API 二进制 `bin/online-bookmarks` 和静态前端 `web/dist`，两者分开部署。二进制只提供 `/api/v1`、`/mcp` 和 `/healthz`，其他路径返回 JSON 404；数据默认写入 `data`。程序不会自动读取 `.env`，JSON 配置使用 `CONFIG_FILE` 指定。
 
 前端热更新：
 
@@ -23,7 +23,7 @@ INITIAL_ADMIN_KEY=change-this-admin-key ./bin/online-bookmarks
 npm --prefix web run dev
 ```
 
-开发端口为 `5173`，Vite 将 `/api` 和 `/mcp` 代理至 `localhost:8080`。
+开发端口为 `5173`。`web/.env` 中 `VITE_API_BASE_URL` 非空时浏览器直连该地址，需要后端设置 `ALLOWED_ORIGINS=http://localhost:5173`；留空则 Vite 把 `/api` 和 `/mcp` 代理至 `localhost:8080`，属于同源开发。
 
 ## 验证
 
@@ -32,7 +32,7 @@ make check       # Go 测试、竞态检测、vet 和前端构建
 make web-test    # 安装 Chromium 后运行浏览器测试
 ```
 
-浏览器测试启动独立服务，监听 `127.0.0.1:18083`，使用自动生成的临时数据目录，不读取生产数据卷。测试覆盖用户隔离、分享、复制回退、草稿及 320–1440 像素响应式行为。
+浏览器测试启动两个独立服务：`vite preview` 在 `127.0.0.1:18082` 托管构建产物，Go API 在 `127.0.0.1:18083`；前端按 `web/.env.e2e` 直连 API，使用自动生成的临时数据目录，不读取生产数据卷。测试覆盖用户隔离、分享、复制回退、草稿及 320–1440 像素响应式行为。
 
 PostgreSQL 集成测试：
 
@@ -48,6 +48,7 @@ TEST_DATABASE_URL='postgres://user:password@localhost:5432/bookmarks_test?sslmod
 ```text
 cmd/server/       程序入口
 internal/app/     数据模型、迁移、认证、REST、MCP、分享和测试
+web/              前端构建配置、环境变量示例与静态站点镜像
 web/src/          React 界面与样式
 web/public/       静态托管配置
 web/tests/        Playwright 端到端测试

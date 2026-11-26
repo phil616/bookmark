@@ -31,7 +31,7 @@ python3 scripts/release.py --check
 make release
 ```
 
-脚本按锁文件安装依赖，构建同源前端和本机 Linux 运行包，收集运行依赖许可，检查文档链接，然后在 `dist/` 生成：
+脚本按锁文件安装前端依赖并收集运行依赖许可，构建本机 Linux API 运行包，检查文档链接，然后在 `dist/` 生成：
 
 ```text
 online-bookmarks-v1.0.0-source.tar.gz
@@ -39,9 +39,9 @@ online-bookmarks-v1.0.0-linux-amd64.tar.gz  # 实际架构由 Go 宿主环境决
 SHA256SUMS
 ```
 
-原生包包含服务端、`web/dist`、配置示例、许可、文档及 `BUILD_INFO.json`。SQLite 使用 CGO，原生程序动态链接构建环境的 C 库，不是通用静态二进制；部署机器需提供兼容的 C 库。跨系统或跨架构部署优先使用 Docker，不声称已提供 Windows/macOS 二进制。
+原生包包含 API 服务端、配置示例、许可、文档及 `BUILD_INFO.json`；前端产物不进入发布包，由部署方按目标地址单独构建。SQLite 使用 CGO，原生程序动态链接构建环境的 C 库，不是通用静态二进制；部署机器需提供兼容的 C 库。跨系统或跨架构部署优先使用 Docker，不声称已提供 Windows/macOS 二进制。
 
-源码包通过明确的目录和文件清单收集，不通过整个工作目录递归打包。原生包前端固定为同源 API，不继承本机 `VITE_API_BASE_URL`。
+源码包通过明确的目录和文件清单收集，不通过整个工作目录递归打包。前端 API 地址由构建时的 `VITE_API_BASE_URL` 决定，与发布包内容无关。
 
 脚本默认拒绝覆盖已有同名文件。重建本地尚未发布的包可执行 `python3 scripts/release.py --force`。已经正式发布的版本不要覆盖，修复使用新版本号。
 
@@ -59,11 +59,16 @@ tar -tzf online-bookmarks-v1.0.0-linux-amd64.tar.gz
 ## Docker
 
 ```bash
+# API
 docker build -t online-bookmarks:1.0.0 .
+# 静态前端，API 地址在构建时注入
+docker build -t online-bookmarks-web:1.0.0 \
+  --build-arg VITE_API_BASE_URL=https://api.example.com ./web
+
 docker run --rm online-bookmarks:1.0.0 --version
 ```
 
-镜像包含网页、许可和运行程序。实际部署按[部署指南](deployment.md)配置持久化数据与密钥。
+两个镜像分别部署，API 镜像只提供接口，前端镜像只提供静态文件。`docker compose up --build` 会同时构建并启动两者（默认前端 `8080`、API `8081`）。实际部署按[部署指南](deployment.md)配置持久化数据、来源白名单与密钥。
 
 ## 建立首版发布
 

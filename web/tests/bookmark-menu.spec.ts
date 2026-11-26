@@ -4,7 +4,7 @@ for (const touch of [false, true]) {
     browser,
   }) => {
     const context = await browser.newContext({
-      baseURL: "http://127.0.0.1:18083",
+      baseURL: "http://127.0.0.1:18082",
       viewport: { width: 1024, height: 900 },
       hasTouch: touch,
     });

@@ -1,41 +1,80 @@
-
 main:
+
   push:
-    - name: phil616-bookmark
+    # ── 前端：构建 + 部署到 EdgeOne Pages ──
+    - name: 前端部署
       docker:
-        image: node:24
-
-      lock:
-        key: phil616-bookmark
-        wait: true
-        cancel-in-progress: true
-        cancel-in-wait: true
-        expires: 1800
-        timeout: 1800
-
+        image: node:20
+        volumes:
+          - /root/.npm
+      ifModify:
+        - "web/**"
       stages:
-        - name: build frontend ci
-          timeout: 15m
+        - name: 安装依赖
           script: |
-            set -eu
-            cd frontend
-            npm ci --no-audit --no-fund
-
-        - name: build frontend dist
-          timeout: 20m
-          script: |
-            set -eu
             cd web
-            export VITE_API_BASE_URL=https://bookmark-api.altasci.com
+            npm ci
+
+        - name: 构建打包
+          script: |
+            cd web
+            # 只填后端公开地址，不要带 /api/v1，前端会自行拼接
+            echo "VITE_API_BASE_URL=https://bookmark-api.altasci.com" > .env.production
+            echo "VITE_COMMIT_SHA=${CNB_COMMIT}" >> .env.production
             npm run build
 
-        - name: push to EdgeOne Pages
-          image: node:20
-          timeout: 15m
+        - name: Deploy to EdgeOne Pages
           imports:
             - https://cnb.cool/greenshadecapital/dreamreflex/assets-secrets/-/blob/main/api-server.yml
+          script: npx edgeone pages deploy ./web/dist/ -n phil616-bookmark -t $EDGEONE_API_TOKEN
+
+    # ── 后端：Docker 构建 + 部署到 S2 ──
+    - services:
+        - docker
+      imports: https://cnb.cool/greenshadecapital/dreamreflex/devops-server-secrets/-/blob/main/s2-server.yml
+      stages:
+        - name: docker login
+          script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
+
+        - name: docker build
           script: |
-            set -eu
-            npx --yes edgeone pages deploy ./web/dist/ \
-              -n phil616-bookmark \
-              -t "${EDGEONE_API_TOKEN}"
+            docker build \
+              -f Dockerfile \
+              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:prod \
+              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${CNB_COMMIT} \
+              .
+
+        - name: docker push
+          script: |
+            docker push ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:prod
+            docker push ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${CNB_COMMIT}
+
+        - name: 通过 ssh 部署后端
+          image: tencentcom/ssh
+          settings:
+            host:
+              - ${S2_IP}
+            username: ${S2_SSH_USER}
+            key: ${S2_SSH_PVKEY}
+            port: ${S2_SSH_PORT}
+            command_timeout: 2m
+            script: |
+              set -euo pipefail
+              cd /root/
+              docker login -u ${CNB_TOKEN_USER_NAME} -p "${DEVOPS_PHIL616_BOOKMARK_DEPLOY_TOKEN}" ${CNB_DOCKER_REGISTRY}
+
+              docker stop phil616-bookmark || true
+              docker rm   phil616-bookmark || true
+              baoctl sync phil616-bookmark
+              docker run -d --name phil616-bookmark \
+                --pull=always \
+                --add-host=host.docker.internal:host-gateway \
+                --restart unless-stopped \
+                -p 5010:8080 \
+                --env-file /run/baoctl/phil616-bookmark.env \
+                ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:prod
+
+              repo="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}"
+              running_img_id="\$(docker inspect -f '{{.Image}}' phil616-bookmark || true)"
+              docker images "\${repo}" -q | grep -v "\${running_img_id#sha256:}" | xargs -r docker rmi -f || true
+              docker image prune -f || true
