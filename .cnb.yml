@@ -7,8 +7,6 @@ main:
         image: node:20
         volumes:
           - /root/.npm
-      ifModify:
-        - "web/**"
       stages:
         - name: 安装依赖
           script: |
